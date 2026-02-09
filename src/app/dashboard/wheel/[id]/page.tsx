@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import WheelCanvas from '@/components/WheelCanvas'
@@ -11,7 +11,7 @@ export default function WheelControlPanel() {
   const router = useRouter()
   const params = useParams()
   const wheelId = params.id as string
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   const [wheel, setWheel] = useState<WheelRow | null>(null)
   const [participants, setParticipants] = useState<ParticipantRow[]>([])

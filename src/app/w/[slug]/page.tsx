@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useParams } from 'next/navigation'
 import WheelCanvas from '@/components/WheelCanvas'
@@ -10,7 +10,7 @@ import type { WheelRow, ParticipantRow } from '@/lib/constants'
 export default function PublicWheelPage() {
   const params = useParams()
   const slug = params.slug as string
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   const [wheel, setWheel] = useState<WheelRow | null>(null)
   const [participants, setParticipants] = useState<ParticipantRow[]>([])
