@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import WheelCanvas from '@/components/WheelCanvas'
 import WinnerOverlay from '@/components/WinnerOverlay'
-import type { WheelRow, ParticipantRow } from '@/lib/constants'
+import { SITE_URL, type WheelRow, type ParticipantRow } from '@/lib/constants'
 
 export default function WheelControlPanel() {
   const router = useRouter()
@@ -141,7 +141,7 @@ export default function WheelControlPanel() {
 
   const copyLink = () => {
     if (!wheel) return
-    navigator.clipboard.writeText(`${window.location.origin}/w/${wheel.slug}`)
+    navigator.clipboard.writeText(`${SITE_URL}/w/${wheel.slug}`)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -336,7 +336,7 @@ export default function WheelControlPanel() {
               <label className="block text-xs text-white/40 mb-1">Shareable link</label>
               <div className="flex items-center gap-2">
                 <code className="flex-1 px-3 py-2 rounded-lg bg-white/5 text-xs text-white/50 truncate">
-                  {typeof window !== 'undefined' ? `${window.location.origin}/w/${wheel.slug}` : `/w/${wheel.slug}`}
+                  {`${SITE_URL}/w/${wheel.slug}`}
                 </code>
                 <button
                   onClick={copyLink}

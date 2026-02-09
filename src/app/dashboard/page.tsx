@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import type { WheelRow, ProfileRow } from '@/lib/constants'
+import { SITE_URL, type WheelRow, type ProfileRow } from '@/lib/constants'
 import { nanoid } from 'nanoid'
 
 export default function DashboardPage() {
@@ -59,7 +59,7 @@ export default function DashboardPage() {
   }
 
   const copyLink = (slug: string) => {
-    navigator.clipboard.writeText(`${window.location.origin}/w/${slug}`)
+    navigator.clipboard.writeText(`${SITE_URL}/w/${slug}`)
   }
 
   if (loading) {

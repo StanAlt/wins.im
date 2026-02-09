@@ -1,3 +1,5 @@
+export const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || (typeof window !== 'undefined' ? window.location.origin : 'https://www.wins.im')
+
 export const WHEEL_SLICE_COLORS = [
   '#FF6B2C', // Electric Orange
   '#132240', // Midnight Blue
