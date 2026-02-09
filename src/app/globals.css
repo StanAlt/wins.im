@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Clash Display';
+  src: url('https://api.fontshare.com/v2/css?f[]=clash-display@700,600&display=swap') format('woff2');
+  font-display: swap;
+}
+
+:root {
+  --color-orange: #FF6B2C;
+  --color-amber: #FFAA33;
+  --color-navy: #0A1628;
+  --color-midnight: #132240;
+  --color-steel: #1E3A5F;
+  --color-violet: #8B5CF6;
+  --color-coral: #FF4F6F;
+  --color-green: #22C55E;
+  --color-ice: #3B82F6;
+  --color-white: #F8FAFB;
+
+  --gradient-hero: linear-gradient(135deg, #0A1628 0%, #132240 50%, #1E3A5F 100%);
+  --gradient-cta: linear-gradient(135deg, #FF6B2C 0%, #FFAA33 100%);
+  --gradient-win: linear-gradient(135deg, #FF6B2C 0%, #FF4F6F 50%, #8B5CF6 100%);
+  --gradient-card: linear-gradient(180deg, #132240 0%, #0F1D30 100%);
+
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 8px 40px rgba(0, 0, 0, 0.4);
+  --shadow-glow-orange: 0 0 30px rgba(255, 107, 44, 0.3);
+  --shadow-glow-violet: 0 0 30px rgba(139, 92, 246, 0.3);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+}
+
+@theme inline {
+  --color-orange: #FF6B2C;
+  --color-amber: #FFAA33;
+  --color-navy: #0A1628;
+  --color-midnight: #132240;
+  --color-steel: #1E3A5F;
+  --color-violet: #8B5CF6;
+  --color-coral: #FF4F6F;
+  --color-green: #22C55E;
+  --color-ice: #3B82F6;
+  --color-white: #F8FAFB;
+  --color-ink: #1A3352;
+  --color-teal-navy: #0F2D4A;
+
+  --font-display: 'Clash Display', 'Satoshi', sans-serif;
+  --font-heading: 'Satoshi', 'Inter', sans-serif;
+  --font-body: 'Satoshi', 'Inter', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  background: var(--color-navy);
+  color: var(--color-white);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-navy);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-steel);
+  border-radius: 3px;
+}
+
+/* Spin animation */
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 30px rgba(255, 107, 44, 0.3); }
+  50% { box-shadow: 0 0 60px rgba(255, 107, 44, 0.6); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
