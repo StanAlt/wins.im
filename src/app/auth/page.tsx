@@ -25,12 +25,29 @@ export default function AuthPage() {
   }, [router])
 
   const handleGoogleLogin = async () => {
-    await getSupabase().auth.signInWithOAuth({
+    console.log('[AUTH DEBUG] cookies BEFORE signIn:', document.cookie)
+    console.log('[AUTH DEBUG] SITE_URL:', SITE_URL)
+    console.log('[AUTH DEBUG] redirectTo:', `${SITE_URL}/auth/callback`)
+
+    const { data, error } = await getSupabase().auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: `${SITE_URL}/auth/callback`,
+        skipBrowserRedirect: true,
       },
     })
+
+    console.log('[AUTH DEBUG] cookies AFTER signIn:', document.cookie)
+    console.log('[AUTH DEBUG] signIn result:', { url: data?.url, error })
+
+    // Check specifically for code-verifier cookie
+    const hasVerifier = document.cookie.includes('code-verifier')
+    console.log('[AUTH DEBUG] has code-verifier cookie:', hasVerifier)
+
+    if (data?.url) {
+      // Now redirect manually
+      window.location.assign(data.url)
+    }
   }
 
   return (

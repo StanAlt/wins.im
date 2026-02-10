@@ -9,6 +9,11 @@ export async function GET(request: Request) {
 
   if (code) {
     const cookieStore = await cookies()
+    const allCookies = cookieStore.getAll()
+    console.log('[CALLBACK DEBUG] All cookies received:', allCookies.map(c => `${c.name}=${c.value.substring(0, 20)}...`))
+    console.log('[CALLBACK DEBUG] Cookie names:', allCookies.map(c => c.name))
+    const hasVerifier = allCookies.some(c => c.name.includes('code-verifier'))
+    console.log('[CALLBACK DEBUG] Has code-verifier cookie:', hasVerifier)
 
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,6 +37,7 @@ export async function GET(request: Request) {
     )
 
     const { error } = await supabase.auth.exchangeCodeForSession(code)
+    console.log('[CALLBACK DEBUG] exchangeCodeForSession result:', error ? error.message : 'SUCCESS')
     if (!error) {
       const forwardedHost = request.headers.get('x-forwarded-host')
       const isLocalEnv = process.env.NODE_ENV === 'development'
