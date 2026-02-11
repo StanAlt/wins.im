@@ -2,12 +2,13 @@
 
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SITE_URL } from '@/lib/constants'
 
 export default function AuthPage() {
   const router = useRouter()
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  const [debugInfo, setDebugInfo] = useState<string | null>(null)
 
   function getSupabase() {
     if (!supabaseRef.current) {
@@ -25,9 +26,7 @@ export default function AuthPage() {
   }, [router])
 
   const handleGoogleLogin = async () => {
-    console.log('[AUTH DEBUG] cookies BEFORE signIn:', document.cookie)
-    console.log('[AUTH DEBUG] SITE_URL:', SITE_URL)
-    console.log('[AUTH DEBUG] redirectTo:', `${SITE_URL}/auth/callback`)
+    const cookiesBefore = document.cookie
 
     const { data, error } = await getSupabase().auth.signInWithOAuth({
       provider: 'google',
@@ -37,15 +36,26 @@ export default function AuthPage() {
       },
     })
 
-    console.log('[AUTH DEBUG] cookies AFTER signIn:', document.cookie)
-    console.log('[AUTH DEBUG] signIn result:', { url: data?.url, error })
-
-    // Check specifically for code-verifier cookie
+    const cookiesAfter = document.cookie
     const hasVerifier = document.cookie.includes('code-verifier')
-    console.log('[AUTH DEBUG] has code-verifier cookie:', hasVerifier)
+
+    const info = [
+      `SITE_URL: ${SITE_URL}`,
+      `redirectTo: ${SITE_URL}/auth/callback`,
+      `cookies BEFORE: ${cookiesBefore || '(empty)'}`,
+      `cookies AFTER: ${cookiesAfter || '(empty)'}`,
+      `has code-verifier: ${hasVerifier}`,
+      `error: ${error ? JSON.stringify(error) : 'none'}`,
+      `redirect url: ${data?.url ? data.url.substring(0, 80) + '...' : 'none'}`,
+    ].join('\n')
+
+    // Show debug info on screen and pause for 5 seconds
+    setDebugInfo(info)
+
+    // Wait 5 seconds so you can read it, then redirect
+    await new Promise(resolve => setTimeout(resolve, 5000))
 
     if (data?.url) {
-      // Now redirect manually
       window.location.assign(data.url)
     }
   }
@@ -81,6 +91,13 @@ export default function AuthPage() {
         <p className="text-center text-white/40 text-xs mt-6">
           Create wheels, share links, pick winners.
         </p>
+
+        {debugInfo && (
+          <pre className="mt-4 p-3 rounded-lg bg-black/50 text-green-400 text-xs whitespace-pre-wrap break-all max-h-64 overflow-auto">
+            {debugInfo}
+            {'\n\nRedirecting in 5 seconds...'}
+          </pre>
+        )}
       </div>
     </div>
   )
