@@ -2,13 +2,12 @@
 
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { SITE_URL } from '@/lib/constants'
 
 export default function AuthPage() {
   const router = useRouter()
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  const [debugInfo, setDebugInfo] = useState<string | null>(null)
 
   function getSupabase() {
     if (!supabaseRef.current) {
@@ -26,38 +25,12 @@ export default function AuthPage() {
   }, [router])
 
   const handleGoogleLogin = async () => {
-    const cookiesBefore = document.cookie
-
-    const { data, error } = await getSupabase().auth.signInWithOAuth({
+    await getSupabase().auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: `${SITE_URL}/auth/callback`,
-        skipBrowserRedirect: true,
       },
     })
-
-    const cookiesAfter = document.cookie
-    const hasVerifier = document.cookie.includes('code-verifier')
-
-    const info = [
-      `SITE_URL: ${SITE_URL}`,
-      `redirectTo: ${SITE_URL}/auth/callback`,
-      `cookies BEFORE: ${cookiesBefore || '(empty)'}`,
-      `cookies AFTER: ${cookiesAfter || '(empty)'}`,
-      `has code-verifier: ${hasVerifier}`,
-      `error: ${error ? JSON.stringify(error) : 'none'}`,
-      `redirect url: ${data?.url ? data.url.substring(0, 80) + '...' : 'none'}`,
-    ].join('\n')
-
-    // Show debug info on screen and pause for 5 seconds
-    setDebugInfo(info)
-
-    // Wait 5 seconds so you can read it, then redirect
-    await new Promise(resolve => setTimeout(resolve, 5000))
-
-    if (data?.url) {
-      window.location.assign(data.url)
-    }
   }
 
   return (
@@ -91,13 +64,6 @@ export default function AuthPage() {
         <p className="text-center text-white/40 text-xs mt-6">
           Create wheels, share links, pick winners.
         </p>
-
-        {debugInfo && (
-          <pre className="mt-4 p-3 rounded-lg bg-black/50 text-green-400 text-xs whitespace-pre-wrap break-all max-h-64 overflow-auto">
-            {debugInfo}
-            {'\n\nRedirecting in 5 seconds...'}
-          </pre>
-        )}
       </div>
     </div>
   )
