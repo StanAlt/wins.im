@@ -19,54 +19,54 @@ export default function AuthCallbackPage() {
     processed.current = true
 
     const handleCallback = async () => {
-      // Log all cookies visible to this page
-      const allCookies = document.cookie
-      const cookieNames = allCookies
-        ? allCookies.split(';').map(c => c.trim().split('=')[0])
-        : []
-
       log(`URL: ${window.location.href}`)
-      log(`Cookie count: ${cookieNames.length}`)
-      log(`Cookie names: ${cookieNames.join(', ') || '(none)'}`)
 
-      const hasVerifier = cookieNames.some(n => n.includes('code-verifier'))
-      log(`Has code-verifier: ${hasVerifier}`)
-
-      if (hasVerifier) {
-        const verifierCookie = allCookies
-          .split(';')
-          .map(c => c.trim())
-          .find(c => c.includes('code-verifier'))
-        log(`Verifier cookie: ${verifierCookie?.substring(0, 60)}...`)
-      }
-
-      const params = new URLSearchParams(window.location.search)
-      const code = params.get('code')
-
-      if (!code) {
-        log('ERROR: No code in URL params')
-        // Don't redirect — show debug
-        return
-      }
-
-      log(`Code: ${code.substring(0, 8)}...`)
-      log('Creating Supabase client...')
-
+      // createClient() triggers GoTrueClient.initialize() which automatically
+      // detects the ?code= param (via detectSessionInUrl) and calls
+      // _exchangeCodeForSession internally. We must NOT call exchangeCodeForSession
+      // manually — that would race with initialize and fail because the
+      // code-verifier cookie is consumed on the first exchange attempt.
       const supabase = createClient()
 
-      log('Calling exchangeCodeForSession...')
-      const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+      log('Waiting for auto-initialization to complete...')
 
-      if (error) {
-        log(`ERROR: ${error.message}`)
-        // Don't redirect — show debug info
-        return
+      // Listen for auth state changes — initialize() will fire SIGNED_IN
+      // once it successfully exchanges the code
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        log(`Auth event: ${event}`)
+        if (event === 'SIGNED_IN' && session) {
+          log(`Success! User: ${session.user?.email}`)
+          subscription.unsubscribe()
+          router.replace('/dashboard')
+        }
+      })
+
+      // Also poll getSession as a fallback — initialize() may have already
+      // completed by the time onAuthStateChange is registered
+      const checkSession = async () => {
+        const { data: { session }, error } = await supabase.auth.getSession()
+        if (error) {
+          log(`ERROR from getSession: ${error.message}`)
+          return
+        }
+        if (session) {
+          log(`Session found! User: ${session.user?.email}`)
+          subscription.unsubscribe()
+          router.replace('/dashboard')
+          return
+        }
+        log('No session yet, retrying in 500ms...')
       }
 
-      log(`Success! User: ${data.user?.email}`)
+      // Wait a bit for initialize to complete, then check
+      setTimeout(checkSession, 1000)
+      setTimeout(checkSession, 2500)
+      setTimeout(checkSession, 5000)
 
-      // Wait 2s so user can see success, then redirect
-      setTimeout(() => router.replace('/dashboard'), 2000)
+      // Final timeout — if still no session after 8s, something went wrong
+      setTimeout(() => {
+        log('ERROR: Timed out waiting for session after 8 seconds')
+      }, 8000)
     }
 
     handleCallback()
