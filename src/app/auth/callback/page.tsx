@@ -1,6 +1,6 @@
 'use client'
 
-import { createClient } from '@/lib/supabase/client'
+import { createBrowserClient } from '@supabase/ssr'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
@@ -21,52 +21,82 @@ export default function AuthCallbackPage() {
     const handleCallback = async () => {
       log(`URL: ${window.location.href}`)
 
-      // createClient() triggers GoTrueClient.initialize() which automatically
-      // detects the ?code= param (via detectSessionInUrl) and calls
-      // _exchangeCodeForSession internally. We must NOT call exchangeCodeForSession
-      // manually — that would race with initialize and fail because the
-      // code-verifier cookie is consumed on the first exchange attempt.
-      const supabase = createClient()
+      // Log all cookies
+      const allCookies = document.cookie
+      const cookieNames = allCookies
+        ? allCookies.split(';').map(c => c.trim().split('=')[0])
+        : []
+      log(`Cookie count: ${cookieNames.length}`)
+      log(`Cookie names: ${cookieNames.join(', ') || '(none)'}`)
+      const hasVerifier = cookieNames.some(n => n.includes('code-verifier'))
+      log(`Has code-verifier: ${hasVerifier}`)
 
-      log('Waiting for auto-initialization to complete...')
+      const code = new URLSearchParams(window.location.search).get('code')
+      if (!code) {
+        log('ERROR: No code in URL')
+        return
+      }
+      log(`Code: ${code.substring(0, 8)}...`)
 
-      // Listen for auth state changes — initialize() will fire SIGNED_IN
-      // once it successfully exchanges the code
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-        log(`Auth event: ${event}`)
-        if (event === 'SIGNED_IN' && session) {
-          log(`Success! User: ${session.user?.email}`)
-          subscription.unsubscribe()
-          router.replace('/dashboard')
+      // Create a FRESH non-singleton client specifically for this exchange.
+      // We disable detectSessionInUrl so initialize() won't race with us,
+      // and set isSingleton: false to avoid the cached client.
+      log('Creating fresh non-singleton client...')
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          isSingleton: false,
+          cookieOptions: {
+            domain: '.wins.im',
+            path: '/',
+            sameSite: 'lax' as const,
+            secure: true,
+          },
+          auth: {
+            detectSessionInUrl: false,
+            autoRefreshToken: false,
+            persistSession: true,
+            flowType: 'pkce',
+          },
         }
-      })
+      )
 
-      // Also poll getSession as a fallback — initialize() may have already
-      // completed by the time onAuthStateChange is registered
-      const checkSession = async () => {
-        const { data: { session }, error } = await supabase.auth.getSession()
-        if (error) {
-          log(`ERROR from getSession: ${error.message}`)
-          return
+      log('Calling exchangeCodeForSession...')
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+
+      if (error) {
+        log(`ERROR: ${error.message}`)
+        // Try to read what getItem would return
+        try {
+          const storageKey = `sb-${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname.split('.')[0]}-auth-token`
+          const verifierKey = `${storageKey}-code-verifier`
+          log(`Expected storage key: ${verifierKey}`)
+
+          // Manually check what parse() returns
+          const { parse } = await import('cookie')
+          const parsed = parse(document.cookie)
+          const parsedKeys = Object.keys(parsed)
+          log(`parse() found ${parsedKeys.length} cookies: ${parsedKeys.join(', ')}`)
+
+          if (parsed[verifierKey]) {
+            log(`parse() HAS verifier: ${parsed[verifierKey].substring(0, 40)}...`)
+          } else {
+            log(`parse() does NOT have verifier key`)
+            // Check for partial matches
+            const partials = parsedKeys.filter(k => k.includes('code-verifier'))
+            if (partials.length > 0) {
+              log(`Partial matches: ${partials.join(', ')}`)
+            }
+          }
+        } catch (e) {
+          log(`Debug error: ${e}`)
         }
-        if (session) {
-          log(`Session found! User: ${session.user?.email}`)
-          subscription.unsubscribe()
-          router.replace('/dashboard')
-          return
-        }
-        log('No session yet, retrying in 500ms...')
+        return
       }
 
-      // Wait a bit for initialize to complete, then check
-      setTimeout(checkSession, 1000)
-      setTimeout(checkSession, 2500)
-      setTimeout(checkSession, 5000)
-
-      // Final timeout — if still no session after 8s, something went wrong
-      setTimeout(() => {
-        log('ERROR: Timed out waiting for session after 8 seconds')
-      }, 8000)
+      log(`Success! User: ${data.user?.email}`)
+      setTimeout(() => router.replace('/dashboard'), 1500)
     }
 
     handleCallback()
