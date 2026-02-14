@@ -21,6 +21,8 @@ export default function WheelControlPanel() {
   const [showWinner, setShowWinner] = useState(false)
   const [winnerName, setWinnerName] = useState('')
   const [copied, setCopied] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [addError, setAddError] = useState('')
   const animRef = useRef<number | null>(null)
 
   const loadData = useCallback(async () => {
@@ -124,6 +126,34 @@ export default function WheelControlPanel() {
     setParticipants(prev => prev.filter(p => p.id !== participantId))
   }
 
+  const handleAddParticipant = async () => {
+    if (!wheel || !newName.trim()) return
+    setAddError('')
+
+    // Check max participants
+    if (wheel.max_participants && participants.length >= wheel.max_participants) {
+      setAddError('Wheel is full')
+      return
+    }
+
+    // Case-insensitive duplicate check
+    const nameLower = newName.trim().toLowerCase()
+    if (participants.some(p => p.display_name.toLowerCase() === nameLower)) {
+      setAddError('Name already taken')
+      return
+    }
+
+    const { error: insertError } = await supabase
+      .from('participants')
+      .insert({ wheel_id: wheelId, display_name: newName.trim() })
+
+    if (insertError) {
+      setAddError(insertError.code === '23505' ? 'Name already taken' : 'Could not add')
+    } else {
+      setNewName('')
+    }
+  }
+
   const handleStatusChange = async (status: 'open' | 'closed') => {
     await handleUpdateField('status', status)
   }
@@ -209,11 +239,11 @@ export default function WheelControlPanel() {
             {/* Settings */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-white/40 mb-1">Slots per user</label>
+                <label className="block text-xs text-white/40 mb-1">Spots per user</label>
                 <input
                   type="number"
                   min={1}
-                  max={5}
+                  max={10}
                   value={wheel.max_slots_per_user}
                   onChange={(e) => handleUpdateField('max_slots_per_user', parseInt(e.target.value) || 1)}
                   className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors"
@@ -306,6 +336,31 @@ export default function WheelControlPanel() {
                   {participants.length} joined · {totalSlots}{wheel.max_participants ? `/${wheel.max_participants}` : '/∞'} slots
                 </span>
               </div>
+
+              {/* Admin add name */}
+              <div className="flex gap-2 mb-2">
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => { setNewName(e.target.value); setAddError('') }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddParticipant()}
+                  placeholder="Add a name..."
+                  maxLength={30}
+                  className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors placeholder:text-white/20"
+                />
+                <button
+                  onClick={handleAddParticipant}
+                  disabled={!newName.trim()}
+                  className="px-3 py-2 rounded-lg text-xs font-medium text-white transition-colors cursor-pointer disabled:opacity-30"
+                  style={{ background: 'var(--gradient-cta)' }}
+                >
+                  Add
+                </button>
+              </div>
+              {addError && (
+                <p className="text-xs mb-2" style={{ color: '#FF4F6F' }}>{addError}</p>
+              )}
+
               <div
                 className="rounded-lg border border-white/[0.06] max-h-60 overflow-y-auto"
                 style={{ background: 'var(--gradient-card)' }}

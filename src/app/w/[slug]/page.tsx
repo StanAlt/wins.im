@@ -23,6 +23,22 @@ export default function PublicWheelPage() {
   const [showWinner, setShowWinner] = useState(false)
   const [winnerName, setWinnerName] = useState('')
   const [countdown, setCountdown] = useState('')
+  const [mySpots, setMySpots] = useState(0)
+
+  // Track how many spots this user has added (per wheel, via localStorage)
+  const getMySpots = useCallback((wheelId: string): string[] => {
+    try {
+      const stored = localStorage.getItem(`wins-spots-${wheelId}`)
+      return stored ? JSON.parse(stored) : []
+    } catch { return [] }
+  }, [])
+
+  const addMySpot = useCallback((wheelId: string, displayName: string) => {
+    const spots = getMySpots(wheelId)
+    spots.push(displayName)
+    localStorage.setItem(`wins-spots-${wheelId}`, JSON.stringify(spots))
+    setMySpots(spots.length)
+  }, [getMySpots])
 
   const loadData = useCallback(async () => {
     const { data: wheelData } = await supabase
@@ -33,6 +49,7 @@ export default function PublicWheelPage() {
 
     if (wheelData) {
       setWheel(wheelData)
+      setMySpots(getMySpots(wheelData.id).length)
       const { data: participantData } = await supabase
         .from('participants')
         .select('*')
@@ -47,7 +64,7 @@ export default function PublicWheelPage() {
       }
     }
     setLoading(false)
-  }, [supabase, slug])
+  }, [supabase, slug, getMySpots])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -181,10 +198,20 @@ export default function PublicWheelPage() {
     return names
   }
 
+  const spotsRemaining = wheel ? wheel.max_slots_per_user - mySpots : 0
+  const hasReachedLimit = wheel ? mySpots >= wheel.max_slots_per_user : false
+
   const handleJoin = async () => {
     if (!wheel || !name.trim()) return
     setJoining(true)
     setError('')
+
+    // Check spots-per-user limit
+    if (hasReachedLimit) {
+      setError(`You've used all ${wheel.max_slots_per_user} of your spots`)
+      setJoining(false)
+      return
+    }
 
     // Check max participants
     if (wheel.max_participants && participants.length >= wheel.max_participants) {
@@ -215,6 +242,7 @@ export default function PublicWheelPage() {
         setError('Could not join. Try again.')
       }
     } else {
+      addMySpot(wheel.id, name.trim())
       setName('')
     }
     setJoining(false)
@@ -272,27 +300,42 @@ export default function PublicWheelPage() {
         {/* Join form (if open) */}
         {wheel.status === 'open' && (
           <div className="mb-8">
-            <div className="flex gap-2 max-w-sm mx-auto">
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
-                placeholder="Your name"
-                maxLength={30}
-                className="flex-1 px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors placeholder:text-white/20"
-              />
-              <button
-                onClick={handleJoin}
-                disabled={joining || !name.trim()}
-                className="px-6 py-3 rounded-full font-semibold text-white text-sm transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 cursor-pointer"
-                style={{ background: 'var(--gradient-cta)' }}
-              >
-                {joining ? '...' : 'Join'}
-              </button>
-            </div>
+            {hasReachedLimit ? (
+              <div className="text-center">
+                <p className="text-white/40 text-sm">
+                  You&apos;ve used all {wheel.max_slots_per_user} of your {wheel.max_slots_per_user === 1 ? 'spot' : 'spots'}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="flex gap-2 max-w-sm mx-auto">
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+                    placeholder="Your name"
+                    maxLength={30}
+                    className="flex-1 px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-orange-500 transition-colors placeholder:text-white/20"
+                  />
+                  <button
+                    onClick={handleJoin}
+                    disabled={joining || !name.trim()}
+                    className="px-6 py-3 rounded-full font-semibold text-white text-sm transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 cursor-pointer"
+                    style={{ background: 'var(--gradient-cta)' }}
+                  >
+                    {joining ? '...' : 'Join'}
+                  </button>
+                </div>
+                {wheel.max_slots_per_user > 1 && (
+                  <p className="text-center text-xs text-white/30 mt-2">
+                    {spotsRemaining} {spotsRemaining === 1 ? 'spot' : 'spots'} remaining
+                  </p>
+                )}
+              </>
+            )}
             {error && (
-              <p className="text-center text-sm mt-2" style={{ color: 'var(--color-coral)' }}>{error}</p>
+              <p className="text-center text-sm mt-2" style={{ color: '#FF4F6F' }}>{error}</p>
             )}
           </div>
         )}
