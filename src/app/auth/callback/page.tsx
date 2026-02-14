@@ -22,22 +22,38 @@ export default function AuthCallbackPage() {
     const handleCallback = async () => {
       log(`URL: ${window.location.href}`)
 
-      // Log raw document.cookie
+      // Log FULL raw document.cookie
       const rawCookie = document.cookie
       log(`Raw cookie length: ${rawCookie.length}`)
-      log(`Raw cookie (first 200): ${rawCookie.substring(0, 200)}`)
+      // Log it all in chunks
+      for (let i = 0; i < rawCookie.length; i += 100) {
+        log(`Raw [${i}]: ${rawCookie.substring(i, i + 100)}`)
+      }
 
-      // Split manually
-      const parts = rawCookie.split(';').map(c => c.trim())
-      log(`Split parts: ${parts.length}`)
-      parts.forEach((p, i) => {
-        const eqPos = p.indexOf('=')
-        const name = eqPos > -1 ? p.substring(0, eqPos) : p
-        const valPreview = eqPos > -1 ? p.substring(eqPos + 1, eqPos + 30) : '(no =)'
-        log(`  [${i}] name="${name}" val="${valPreview}..."`)
-      })
+      // Test parse directly
+      const parsed = parse(rawCookie)
+      const parsedKeys = Object.keys(parsed)
+      log(`parse() keys: ${parsedKeys.join(', ')}`)
+      log(`parse() has verifier: ${'sb-pzxaidqhlwlluyiqydqz-auth-token-code-verifier' in parsed}`)
 
-      const hasVerifier = parts.some(p => p.includes('code-verifier'))
+      // Extract just the verifier part and check char codes at the end
+      const verifierPart = rawCookie.split(';').map(c => c.trim()).find(c => c.includes('code-verifier'))
+      if (verifierPart) {
+        const val = verifierPart.split('=').slice(1).join('=')
+        log(`Verifier value length: ${val.length}`)
+        log(`Verifier last 30 chars: "${val.substring(val.length - 30)}"`)
+        // Check for non-printable characters
+        const nonPrintable = []
+        for (let i = 0; i < val.length; i++) {
+          const code = val.charCodeAt(i)
+          if (code < 32 || code > 126) {
+            nonPrintable.push(`pos ${i}: charCode ${code}`)
+          }
+        }
+        log(`Non-printable chars: ${nonPrintable.length > 0 ? nonPrintable.join(', ') : 'none'}`)
+      }
+
+      const hasVerifier = verifierPart !== undefined
       log(`Has code-verifier: ${hasVerifier}`)
 
       const code = new URLSearchParams(window.location.search).get('code')
