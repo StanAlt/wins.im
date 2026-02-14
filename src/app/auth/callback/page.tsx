@@ -22,40 +22,6 @@ export default function AuthCallbackPage() {
     const handleCallback = async () => {
       log(`URL: ${window.location.href}`)
 
-      // Log FULL raw document.cookie
-      const rawCookie = document.cookie
-      log(`Raw cookie length: ${rawCookie.length}`)
-      // Log it all in chunks
-      for (let i = 0; i < rawCookie.length; i += 100) {
-        log(`Raw [${i}]: ${rawCookie.substring(i, i + 100)}`)
-      }
-
-      // Test parse directly
-      const parsed = parse(rawCookie)
-      const parsedKeys = Object.keys(parsed)
-      log(`parse() keys: ${parsedKeys.join(', ')}`)
-      log(`parse() has verifier: ${'sb-pzxaidqhlwlluyiqydqz-auth-token-code-verifier' in parsed}`)
-
-      // Extract just the verifier part and check char codes at the end
-      const verifierPart = rawCookie.split(';').map(c => c.trim()).find(c => c.includes('code-verifier'))
-      if (verifierPart) {
-        const val = verifierPart.split('=').slice(1).join('=')
-        log(`Verifier value length: ${val.length}`)
-        log(`Verifier last 30 chars: "${val.substring(val.length - 30)}"`)
-        // Check for non-printable characters
-        const nonPrintable = []
-        for (let i = 0; i < val.length; i++) {
-          const code = val.charCodeAt(i)
-          if (code < 32 || code > 126) {
-            nonPrintable.push(`pos ${i}: charCode ${code}`)
-          }
-        }
-        log(`Non-printable chars: ${nonPrintable.length > 0 ? nonPrintable.join(', ') : 'none'}`)
-      }
-
-      const hasVerifier = verifierPart !== undefined
-      log(`Has code-verifier: ${hasVerifier}`)
-
       const code = new URLSearchParams(window.location.search).get('code')
       if (!code) {
         log('ERROR: No code in URL')
@@ -63,64 +29,124 @@ export default function AuthCallbackPage() {
       }
       log(`Code: ${code.substring(0, 8)}...`)
 
-      // Create a FRESH non-singleton client specifically for this exchange.
-      // We disable detectSessionInUrl so initialize() won't race with us,
-      // and set isSingleton: false to avoid the cached client.
-      log('Creating fresh non-singleton client...')
-      const supabase = createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-          isSingleton: false,
-          cookieOptions: {
-            domain: '.wins.im',
-            path: '/',
-            sameSite: 'lax' as const,
-            secure: true,
-          },
-          auth: {
-            detectSessionInUrl: false,
-            autoRefreshToken: false,
-            persistSession: true,
-            flowType: 'pkce',
-          },
+      // Read verifier DIRECTLY from document.cookie before creating any client
+      const rawCookie = document.cookie
+      const verifierCookieName = 'sb-pzxaidqhlwlluyiqydqz-auth-token-code-verifier'
+      const parsed = parse(rawCookie)
+      log(`parse() keys: ${Object.keys(parsed).join(', ')}`)
+
+      // Also try manual extraction as fallback
+      let verifierValue: string | null = null
+      const parts = rawCookie.split(';').map(c => c.trim())
+      for (const part of parts) {
+        if (part.startsWith(verifierCookieName + '=')) {
+          verifierValue = part.substring(verifierCookieName.length + 1)
+          break
         }
-      )
+      }
 
-      log('Calling exchangeCodeForSession...')
-      const { data, error } = await supabase.auth.exchangeCodeForSession(code)
-
-      if (error) {
-        log(`ERROR: ${error.message}`)
-        // Try to read what getItem would return
-        try {
-          const storageKey = `sb-${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname.split('.')[0]}-auth-token`
-          const verifierKey = `${storageKey}-code-verifier`
-          log(`Expected storage key: ${verifierKey}`)
-
-          // Manually check what parse() returns
-          const parsed = parse(document.cookie)
-          const parsedKeys = Object.keys(parsed)
-          log(`parse() found ${parsedKeys.length} cookies: ${parsedKeys.join(', ')}`)
-
-          if (parsed[verifierKey]) {
-            log(`parse() HAS verifier: ${parsed[verifierKey].substring(0, 40)}...`)
-          } else {
-            log(`parse() does NOT have verifier key`)
-            // Check for partial matches
-            const partials = parsedKeys.filter(k => k.includes('code-verifier'))
-            if (partials.length > 0) {
-              log(`Partial matches: ${partials.join(', ')}`)
-            }
-          }
-        } catch (e) {
-          log(`Debug error: ${e}`)
-        }
+      if (parsed[verifierCookieName]) {
+        log(`parse() found verifier: ${parsed[verifierCookieName].substring(0, 40)}...`)
+        verifierValue = parsed[verifierCookieName]
+      } else if (verifierValue) {
+        log(`Manual extract found verifier: ${verifierValue.substring(0, 40)}...`)
+      } else {
+        log('ERROR: No code-verifier in cookies at all!')
         return
       }
 
-      log(`Success! User: ${data.user?.email}`)
-      setTimeout(() => router.replace('/dashboard'), 1500)
+      // Decode the base64 verifier value
+      // The value is stored as: base64-<base64url encoded JSON string>
+      // The JSON string is: "<hex_verifier>/<redirect_type>"
+      let codeVerifier = verifierValue
+      if (codeVerifier.startsWith('base64-')) {
+        try {
+          const b64 = codeVerifier.substring(7) // remove "base64-" prefix
+          // base64url to base64
+          const b64std = b64.replace(/-/g, '+').replace(/_/g, '/')
+          const decoded = atob(b64std)
+          log(`Decoded verifier: ${decoded.substring(0, 50)}...`)
+          // It's a JSON string like "\"hexvalue/redirect\""
+          codeVerifier = JSON.parse(decoded)
+          log(`JSON parsed verifier: ${String(codeVerifier).substring(0, 50)}...`)
+        } catch (e) {
+          log(`Decode error: ${e}`)
+        }
+      }
+
+      // Split off redirect type if present
+      const [actualVerifier] = String(codeVerifier).split('/')
+      log(`Final verifier: ${actualVerifier.substring(0, 20)}...`)
+
+      // Now call the Supabase token endpoint directly
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+      log('Calling token endpoint directly...')
+      try {
+        const res = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=pkce`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': anonKey,
+            'Authorization': `Bearer ${anonKey}`,
+          },
+          body: JSON.stringify({
+            auth_code: code,
+            code_verifier: actualVerifier,
+          }),
+        })
+
+        const data = await res.json()
+        log(`Token response status: ${res.status}`)
+
+        if (!res.ok) {
+          log(`Token error: ${JSON.stringify(data)}`)
+          return
+        }
+
+        log(`Success! User: ${data.user?.email}`)
+
+        // Now use the Supabase client to save the session properly
+        const supabase = createBrowserClient(
+          supabaseUrl,
+          anonKey,
+          {
+            isSingleton: false,
+            cookieOptions: {
+              domain: '.wins.im',
+              path: '/',
+              sameSite: 'lax' as const,
+              secure: true,
+            },
+            auth: {
+              detectSessionInUrl: false,
+              autoRefreshToken: false,
+              persistSession: true,
+              flowType: 'pkce',
+            },
+          }
+        )
+
+        // Set session manually
+        const { error: setError } = await supabase.auth.setSession({
+          access_token: data.access_token,
+          refresh_token: data.refresh_token,
+        })
+
+        if (setError) {
+          log(`setSession error: ${setError.message}`)
+          return
+        }
+
+        // Clean up the code-verifier cookie
+        document.cookie = `${verifierCookieName}=; path=/; domain=.wins.im; max-age=0`
+
+        log('Session saved! Redirecting...')
+        setTimeout(() => router.replace('/dashboard'), 1500)
+      } catch (e) {
+        log(`Fetch error: ${e}`)
+      }
     }
 
     handleCallback()
