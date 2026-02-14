@@ -1,6 +1,7 @@
 'use client'
 
 import { createBrowserClient } from '@supabase/ssr'
+import { parse } from 'cookie'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
@@ -21,14 +22,22 @@ export default function AuthCallbackPage() {
     const handleCallback = async () => {
       log(`URL: ${window.location.href}`)
 
-      // Log all cookies
-      const allCookies = document.cookie
-      const cookieNames = allCookies
-        ? allCookies.split(';').map(c => c.trim().split('=')[0])
-        : []
-      log(`Cookie count: ${cookieNames.length}`)
-      log(`Cookie names: ${cookieNames.join(', ') || '(none)'}`)
-      const hasVerifier = cookieNames.some(n => n.includes('code-verifier'))
+      // Log raw document.cookie
+      const rawCookie = document.cookie
+      log(`Raw cookie length: ${rawCookie.length}`)
+      log(`Raw cookie (first 200): ${rawCookie.substring(0, 200)}`)
+
+      // Split manually
+      const parts = rawCookie.split(';').map(c => c.trim())
+      log(`Split parts: ${parts.length}`)
+      parts.forEach((p, i) => {
+        const eqPos = p.indexOf('=')
+        const name = eqPos > -1 ? p.substring(0, eqPos) : p
+        const valPreview = eqPos > -1 ? p.substring(eqPos + 1, eqPos + 30) : '(no =)'
+        log(`  [${i}] name="${name}" val="${valPreview}..."`)
+      })
+
+      const hasVerifier = parts.some(p => p.includes('code-verifier'))
       log(`Has code-verifier: ${hasVerifier}`)
 
       const code = new URLSearchParams(window.location.search).get('code')
@@ -74,7 +83,6 @@ export default function AuthCallbackPage() {
           log(`Expected storage key: ${verifierKey}`)
 
           // Manually check what parse() returns
-          const { parse } = await import('cookie')
           const parsed = parse(document.cookie)
           const parsedKeys = Object.keys(parsed)
           log(`parse() found ${parsedKeys.length} cookies: ${parsedKeys.join(', ')}`)
