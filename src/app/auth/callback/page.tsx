@@ -82,14 +82,18 @@ export default function AuthCallbackPage() {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
       const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
+      log(`Supabase URL: ${supabaseUrl}`)
+      log(`Anon key starts: ${anonKey?.substring(0, 20)}...`)
+      log(`Anon key length: ${anonKey?.length}`)
       log('Calling token endpoint directly...')
       try {
-        const res = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=pkce`, {
+        const tokenUrl = `${supabaseUrl}/auth/v1/token?grant_type=pkce`
+        log(`Token URL: ${tokenUrl}`)
+        const res = await fetch(tokenUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'apikey': anonKey,
-            'Authorization': `Bearer ${anonKey}`,
           },
           body: JSON.stringify({
             auth_code: code,
