@@ -58,6 +58,42 @@ export default function WheelControlPanel() {
     return () => { supabase.removeChannel(channel) }
   }, [supabase, wheelId])
 
+  // Realtime: spin broadcast (for auto-scheduled spins triggered by cron)
+  useEffect(() => {
+    const channel = supabase
+      .channel(`wheel-admin-spin:${wheelId}`)
+      .on('broadcast', { event: 'spin_started' }, (payload) => {
+        const { final_angle, duration, winner_name } = payload.payload
+
+        setSpinning(true)
+        setShowWinner(false)
+
+        const startTime = performance.now()
+        const startRotation = rotation
+
+        const animate = (currentTime: number) => {
+          const elapsed = currentTime - startTime
+          const progress = Math.min(elapsed / duration, 1)
+          const eased = 1 - Math.pow(1 - progress, 4)
+          const currentRotation = startRotation + eased * final_angle
+          setRotation(currentRotation)
+
+          if (progress < 1) {
+            animRef.current = requestAnimationFrame(animate)
+          } else {
+            setSpinning(false)
+            setWinnerName(winner_name)
+            setShowWinner(true)
+            loadData()
+          }
+        }
+        animRef.current = requestAnimationFrame(animate)
+      })
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [supabase, wheelId, rotation, loadData])
+
   const buildSlotNames = () => {
     const names: string[] = []
     for (const p of participants) {

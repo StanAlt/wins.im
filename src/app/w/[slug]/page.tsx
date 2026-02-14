@@ -79,6 +79,8 @@ export default function PublicWheelPage() {
 
       if (diff <= 0) {
         setCountdown('')
+        // Countdown reached zero — reload data to pick up the auto-spin result
+        loadData()
         return
       }
 
