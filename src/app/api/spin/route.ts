@@ -59,12 +59,6 @@ export async function POST(request: Request) {
   // Spin duration between 4-7 seconds
   const duration = 4000 + Math.floor(Math.random() * 3000)
 
-  // Update wheel status to spinning
-  await supabase
-    .from('wheels')
-    .update({ status: 'spinning' })
-    .eq('id', wheel_id)
-
   // Build spin result
   const spinResult = {
     winner_name: winner.name,
@@ -75,7 +69,10 @@ export async function POST(request: Request) {
 
   const spinHistory = [...(wheel.spin_history || []), spinResult]
 
-  // Update wheel with winner
+  // Single update: set status to 'spinning' with all animation + winner data
+  // The client will animate the wheel, then show the winner when animation completes.
+  // Status goes straight to 'completed' but with spin_final_angle set,
+  // so the client knows to animate first before revealing the winner.
   await supabase
     .from('wheels')
     .update({
@@ -83,21 +80,11 @@ export async function POST(request: Request) {
       winner_name: winner.name,
       winner_participant_id: winner.id,
       spin_history: spinHistory,
+      spin_final_angle: finalAngle,
+      spin_duration: duration,
+      spin_winner_name: winner.name,
     })
     .eq('id', wheel_id)
-
-  // Broadcast spin event via Realtime
-  const channel = supabase.channel(`wheel:${wheel_id}`)
-  await channel.send({
-    type: 'broadcast',
-    event: 'spin_started',
-    payload: {
-      final_angle: finalAngle,
-      duration,
-      winner_name: winner.name,
-      winner_id: winner.id,
-    },
-  })
 
   return NextResponse.json({
     final_angle: finalAngle,

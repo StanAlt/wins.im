@@ -13,6 +13,8 @@ export default function PublicWheelPage() {
   const slug = params.slug as string
   const supabase = useMemo(() => createClient(), [])
   const autoSpinTriggered = useRef(false)
+  const animRef = useRef<number | null>(null)
+  const rotationRef = useRef(0)
 
   const [wheel, setWheel] = useState<WheelRow | null>(null)
   const [participants, setParticipants] = useState<ParticipantRow[]>([])
@@ -44,6 +46,37 @@ export default function PublicWheelPage() {
     setMySpots(spots.length)
   }, [getMySpots])
 
+  // Start the spin animation
+  const startSpinAnimation = useCallback((finalAngle: number, duration: number, winner: string) => {
+    if (animRef.current) cancelAnimationFrame(animRef.current)
+
+    setSpinning(true)
+    setShowWinner(false)
+
+    const startTime = performance.now()
+    const startRotation = rotationRef.current
+
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime
+      const progress = Math.min(elapsed / duration, 1)
+      const eased = 1 - Math.pow(1 - progress, 4)
+      const currentRotation = startRotation + eased * finalAngle
+
+      rotationRef.current = currentRotation
+      setRotation(currentRotation)
+
+      if (progress < 1) {
+        animRef.current = requestAnimationFrame(animate)
+      } else {
+        animRef.current = null
+        setSpinning(false)
+        setWinnerName(winner)
+        setShowWinner(true)
+      }
+    }
+    animRef.current = requestAnimationFrame(animate)
+  }, [])
+
   const loadData = useCallback(async () => {
     const { data: wheelData } = await supabase
       .from('wheels')
@@ -61,14 +94,14 @@ export default function PublicWheelPage() {
         .order('joined_at')
       if (participantData) setParticipants(participantData)
 
-      // Show winner if already completed
+      // Show winner if already completed (don't re-animate on page load)
       if (wheelData.status === 'completed' && wheelData.winner_name) {
         setWinnerName(wheelData.winner_name)
         setShowWinner(true)
       }
     }
     setLoading(false)
-  }, [supabase, slug, getMySpots])
+  }, [supabase, slug, getMySpots, startSpinAnimation])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -85,12 +118,9 @@ export default function PublicWheelPage() {
       })
 
       if (!res.ok) {
-        // If another client already triggered it, the wheel won't be 'open' anymore
-        // Just reload data to pick up the result
         await loadData()
       }
     } catch {
-      // Network error — just reload data
       await loadData()
     }
   }, [loadData])
@@ -106,7 +136,6 @@ export default function PublicWheelPage() {
 
       if (diff <= 0) {
         setCountdown('')
-        // Countdown reached zero — trigger auto-spin from client side
         triggerAutoSpin(wheel.id)
         return
       }
@@ -157,44 +186,8 @@ export default function PublicWheelPage() {
     return () => { supabase.removeChannel(channel) }
   }, [supabase, wheel])
 
-  // Realtime: spin broadcast
-  useEffect(() => {
-    if (!wheel) return
-
-    const channel = supabase
-      .channel(`wheel:${wheel.id}`)
-      .on('broadcast', { event: 'spin_started' }, (payload) => {
-        const { final_angle, duration, winner_name } = payload.payload
-
-        setSpinning(true)
-        setShowWinner(false)
-
-        const startTime = performance.now()
-        const startRotation = rotation
-
-        const animate = (currentTime: number) => {
-          const elapsed = currentTime - startTime
-          const progress = Math.min(elapsed / duration, 1)
-          const eased = 1 - Math.pow(1 - progress, 4)
-          const currentRotation = startRotation + eased * final_angle
-          setRotation(currentRotation)
-
-          if (progress < 1) {
-            requestAnimationFrame(animate)
-          } else {
-            setSpinning(false)
-            setWinnerName(winner_name)
-            setShowWinner(true)
-          }
-        }
-        requestAnimationFrame(animate)
-      })
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [supabase, wheel, rotation])
-
-  // Realtime: wheel status changes
+  // Realtime: wheel updates (status changes, spin data)
+  // When the server updates the wheel with spin_final_angle, we animate!
   useEffect(() => {
     if (!wheel) return
 
@@ -207,15 +200,26 @@ export default function PublicWheelPage() {
         filter: `id=eq.${wheel.id}`,
       }, (payload) => {
         const updated = payload.new as WheelRow
-        setWheel(updated)
-        if (updated.status === 'completed' && updated.winner_name) {
-          setWinnerName(updated.winner_name)
+
+        // Check if this update contains spin animation data
+        if (updated.spin_final_angle && updated.spin_duration && updated.spin_winner_name && !spinning) {
+          // Start the spin animation!
+          setWheel(updated)
+          startSpinAnimation(updated.spin_final_angle, updated.spin_duration, updated.spin_winner_name)
+        } else if (!spinning) {
+          // Regular update (status change, etc.) — only update if not mid-animation
+          setWheel(updated)
+          if (updated.status === 'completed' && updated.winner_name && !updated.spin_final_angle) {
+            // Legacy spin without animation data
+            setWinnerName(updated.winner_name)
+            setShowWinner(true)
+          }
         }
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [supabase, wheel])
+  }, [supabase, wheel, spinning, startSpinAnimation])
 
   const buildSlotNames = () => {
     const names: string[] = []
@@ -235,21 +239,18 @@ export default function PublicWheelPage() {
     setJoining(true)
     setError('')
 
-    // Check spots-per-user limit
     if (hasReachedLimit) {
       setError(`You've used all ${wheel.max_slots_per_user} of your spots`)
       setJoining(false)
       return
     }
 
-    // Check max participants
     if (wheel.max_participants && participants.length >= wheel.max_participants) {
       setError('This wheel is full')
       setJoining(false)
       return
     }
 
-    // Client-side case-insensitive duplicate check
     const nameLower = name.trim().toLowerCase()
     if (participants.some(p => p.display_name.toLowerCase() === nameLower)) {
       setError('That name is already taken')
@@ -363,8 +364,17 @@ export default function PublicWheelPage() {
           />
         </div>
 
-        {/* Join form (if open) */}
-        {wheel.status === 'open' && (
+        {/* Spinning indicator */}
+        {spinning && (
+          <div className="text-center py-4">
+            <p className="text-lg font-bold animate-pulse" style={{ color: 'var(--color-orange)', fontFamily: 'var(--font-display)' }}>
+              Spinning!
+            </p>
+          </div>
+        )}
+
+        {/* Join form (if open and not spinning) */}
+        {wheel.status === 'open' && !spinning && (
           <div className="mb-8">
             {justJoined && (
               <div className="text-center mb-4 animate-fade-in">
@@ -421,16 +431,8 @@ export default function PublicWheelPage() {
           </div>
         )}
 
-        {/* Status messages */}
-        {wheel.status === 'spinning' && (
-          <div className="text-center py-4">
-            <p className="text-lg font-bold animate-pulse" style={{ color: 'var(--color-orange)', fontFamily: 'var(--font-display)' }}>
-              Spinning!
-            </p>
-          </div>
-        )}
-
-        {wheel.status === 'closed' && (
+        {/* Closed status */}
+        {wheel.status === 'closed' && !spinning && (
           <div className="text-center py-4">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/[0.06]">
               <div className="w-2 h-2 rounded-full bg-white/30" />
@@ -471,7 +473,7 @@ export default function PublicWheelPage() {
         </div>
 
         {/* Share link button */}
-        {wheel.status === 'open' && participants.length > 0 && (
+        {wheel.status === 'open' && participants.length > 0 && !spinning && (
           <div className="text-center mt-6">
             <button
               onClick={handleShareLink}
@@ -486,7 +488,7 @@ export default function PublicWheelPage() {
         )}
 
         {/* Scheduled spin countdown */}
-        {wheel.spin_at && wheel.status === 'open' && countdown && (
+        {wheel.spin_at && wheel.status === 'open' && countdown && !spinning && (
           <div className="text-center mt-6 p-4 rounded-xl border border-white/[0.06]" style={{ background: 'var(--gradient-card)' }}>
             <p className="text-xs text-white/40 mb-1">Spin scheduled in</p>
             <p className="text-2xl font-bold tabular-nums" style={{ fontFamily: 'var(--font-display)', color: 'var(--color-orange)' }}>
@@ -504,7 +506,7 @@ export default function PublicWheelPage() {
           </div>
         )}
 
-        {/* Persistent winner display (always visible when completed) */}
+        {/* Persistent winner display (always visible when completed and not spinning) */}
         {wheel.status === 'completed' && wheel.winner_name && !spinning && (
           <div className="text-center mt-6 p-6 rounded-xl border border-orange-500/20 animate-fade-in" style={{ background: 'var(--gradient-card)', boxShadow: 'var(--shadow-glow-orange)' }}>
             <p className="text-xs text-white/40 mb-1 uppercase tracking-widest">Winner</p>
@@ -518,7 +520,7 @@ export default function PublicWheelPage() {
         )}
 
         {/* Waiting message */}
-        {wheel.status === 'open' && participants.length > 0 && !countdown && (
+        {wheel.status === 'open' && participants.length > 0 && !countdown && !spinning && (
           <div className="text-center mt-8">
             <div className="inline-flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />

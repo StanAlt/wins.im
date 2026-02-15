@@ -58,41 +58,52 @@ export default function WheelControlPanel() {
     return () => { supabase.removeChannel(channel) }
   }, [supabase, wheelId])
 
-  // Realtime: spin broadcast (for auto-scheduled spins triggered by cron)
+  // Realtime: wheel updates (for auto-scheduled spins or external changes)
   useEffect(() => {
     const channel = supabase
-      .channel(`wheel-admin-spin:${wheelId}`)
-      .on('broadcast', { event: 'spin_started' }, (payload) => {
-        const { final_angle, duration, winner_name } = payload.payload
+      .channel(`wheel-admin-updates:${wheelId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'wheels',
+        filter: `id=eq.${wheelId}`,
+      }, (payload) => {
+        const updated = payload.new as WheelRow
 
-        setSpinning(true)
-        setShowWinner(false)
+        // If this update has spin animation data and we're not already spinning
+        if (updated.spin_final_angle && updated.spin_duration && updated.spin_winner_name && !spinning) {
+          setWheel(updated)
+          setSpinning(true)
+          setShowWinner(false)
 
-        const startTime = performance.now()
-        const startRotation = rotation
+          const startTime = performance.now()
+          const startRotation = rotation
 
-        const animate = (currentTime: number) => {
-          const elapsed = currentTime - startTime
-          const progress = Math.min(elapsed / duration, 1)
-          const eased = 1 - Math.pow(1 - progress, 4)
-          const currentRotation = startRotation + eased * final_angle
-          setRotation(currentRotation)
+          const animate = (currentTime: number) => {
+            const elapsed = currentTime - startTime
+            const progress = Math.min(elapsed / updated.spin_duration!, 1)
+            const eased = 1 - Math.pow(1 - progress, 4)
+            const currentRotation = startRotation + eased * updated.spin_final_angle!
+            setRotation(currentRotation)
 
-          if (progress < 1) {
-            animRef.current = requestAnimationFrame(animate)
-          } else {
-            setSpinning(false)
-            setWinnerName(winner_name)
-            setShowWinner(true)
-            loadData()
+            if (progress < 1) {
+              animRef.current = requestAnimationFrame(animate)
+            } else {
+              setSpinning(false)
+              setWinnerName(updated.spin_winner_name!)
+              setShowWinner(true)
+              loadData()
+            }
           }
+          animRef.current = requestAnimationFrame(animate)
+        } else if (!spinning) {
+          setWheel(updated)
         }
-        animRef.current = requestAnimationFrame(animate)
       })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [supabase, wheelId, rotation, loadData])
+  }, [supabase, wheelId, rotation, spinning, loadData])
 
   const buildSlotNames = () => {
     const names: string[] = []
@@ -199,6 +210,9 @@ export default function WheelControlPanel() {
       status: 'open',
       winner_name: null,
       winner_participant_id: null,
+      spin_final_angle: null,
+      spin_duration: null,
+      spin_winner_name: null,
     }).eq('id', wheelId)
     setShowWinner(false)
     setRotation(0)

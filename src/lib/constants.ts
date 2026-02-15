@@ -123,6 +123,9 @@ export interface WheelRow {
   winner_participant_id: string | null
   spin_history: SpinResult[]
   spin_at: string | null
+  spin_final_angle: number | null
+  spin_duration: number | null
+  spin_winner_name: string | null
   created_at: string
   updated_at: string
 }
