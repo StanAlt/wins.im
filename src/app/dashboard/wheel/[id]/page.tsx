@@ -215,7 +215,10 @@ export default function WheelControlPanel() {
   if (loading || !wheel) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--gradient-hero)' }}>
-        <div className="text-white/50">Loading...</div>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-white/20 border-t-orange-500 rounded-full animate-spin" />
+          <div className="text-white/40 text-sm">Loading wheel...</div>
+        </div>
       </div>
     )
   }
@@ -488,6 +491,7 @@ export default function WheelControlPanel() {
                 size={Math.min(500, typeof window !== 'undefined' ? window.innerWidth - 400 : 500)}
                 rotation={rotation}
                 spinning={spinning}
+                theme={wheel.theme}
               />
             </div>
 
@@ -513,7 +517,7 @@ export default function WheelControlPanel() {
       </main>
 
       {/* Winner overlay */}
-      {showWinner && wheel.show_confetti && (
+      {showWinner && (
         <WinnerOverlay
           winnerName={winnerName}
           prize={wheel.prize_description}

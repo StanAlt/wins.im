@@ -13,6 +13,7 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<ProfileRow | null>(null)
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -48,9 +49,21 @@ export default function DashboardPage() {
     setCreating(false)
   }
 
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
   const handleDelete = async (id: string) => {
+    if (deleteConfirm !== id) {
+      setDeleteConfirm(id)
+      return
+    }
     await supabase.from('wheels').delete().eq('id', id)
     setWheels(wheels.filter(w => w.id !== id))
+    setDeleteConfirm(null)
+  }
+
+  const cancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDeleteConfirm(null)
   }
 
   const handleSignOut = async () => {
@@ -60,12 +73,17 @@ export default function DashboardPage() {
 
   const copyLink = (slug: string) => {
     navigator.clipboard.writeText(`${SITE_URL}/w/${slug}`)
+    setCopiedSlug(slug)
+    setTimeout(() => setCopiedSlug(null), 2000)
   }
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--gradient-hero)' }}>
-        <div className="text-white/50">Loading...</div>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-white/20 border-t-orange-500 rounded-full animate-spin" />
+          <div className="text-white/40 text-sm">Loading your wheels...</div>
+        </div>
       </div>
     )
   }
@@ -163,14 +181,31 @@ export default function DashboardPage() {
                     onClick={() => copyLink(wheel.slug)}
                     className="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-white/10 text-white/60 transition-colors cursor-pointer"
                   >
-                    Copy link
+                    {copiedSlug === wheel.slug ? 'Copied!' : 'Copy link'}
                   </button>
-                  <button
-                    onClick={() => handleDelete(wheel.id)}
-                    className="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-red-500/20 text-white/40 hover:text-red-400 transition-colors cursor-pointer"
-                  >
-                    Delete
-                  </button>
+                  {deleteConfirm === wheel.id ? (
+                    <>
+                      <button
+                        onClick={() => handleDelete(wheel.id)}
+                        className="text-xs px-3 py-1 rounded-full bg-red-500/20 text-red-400 font-medium transition-colors cursor-pointer"
+                      >
+                        Confirm Delete
+                      </button>
+                      <button
+                        onClick={cancelDelete}
+                        className="text-xs px-3 py-1 rounded-full bg-white/5 text-white/40 hover:text-white/60 transition-colors cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => handleDelete(wheel.id)}
+                      className="text-xs px-3 py-1 rounded-full bg-white/5 hover:bg-red-500/20 text-white/40 hover:text-red-400 transition-colors cursor-pointer"
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

@@ -1,16 +1,18 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import WheelCanvas from '@/components/WheelCanvas'
 import WinnerOverlay from '@/components/WinnerOverlay'
 import type { WheelRow, ParticipantRow } from '@/lib/constants'
 
 export default function PublicWheelPage() {
   const params = useParams()
+  const router = useRouter()
   const slug = params.slug as string
   const supabase = useMemo(() => createClient(), [])
+  const autoSpinTriggered = useRef(false)
 
   const [wheel, setWheel] = useState<WheelRow | null>(null)
   const [participants, setParticipants] = useState<ParticipantRow[]>([])
@@ -24,6 +26,8 @@ export default function PublicWheelPage() {
   const [winnerName, setWinnerName] = useState('')
   const [countdown, setCountdown] = useState('')
   const [mySpots, setMySpots] = useState(0)
+  const [justJoined, setJustJoined] = useState(false)
+  const [copiedLink, setCopiedLink] = useState(false)
 
   // Track how many spots this user has added (per wheel, via localStorage)
   const getMySpots = useCallback((wheelId: string): string[] => {
@@ -68,6 +72,29 @@ export default function PublicWheelPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
+  // Auto-spin trigger: when countdown reaches zero, call the auto-spin endpoint
+  const triggerAutoSpin = useCallback(async (wheelId: string) => {
+    if (autoSpinTriggered.current) return
+    autoSpinTriggered.current = true
+
+    try {
+      const res = await fetch('/api/auto-spin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wheel_id: wheelId }),
+      })
+
+      if (!res.ok) {
+        // If another client already triggered it, the wheel won't be 'open' anymore
+        // Just reload data to pick up the result
+        await loadData()
+      }
+    } catch {
+      // Network error — just reload data
+      await loadData()
+    }
+  }, [loadData])
+
   // Countdown timer for scheduled spin
   useEffect(() => {
     if (!wheel?.spin_at || wheel.status === 'completed') return
@@ -79,8 +106,8 @@ export default function PublicWheelPage() {
 
       if (diff <= 0) {
         setCountdown('')
-        // Countdown reached zero — reload data to pick up the auto-spin result
-        loadData()
+        // Countdown reached zero — trigger auto-spin from client side
+        triggerAutoSpin(wheel.id)
         return
       }
 
@@ -101,7 +128,7 @@ export default function PublicWheelPage() {
     update()
     const interval = setInterval(update, 1000)
     return () => clearInterval(interval)
-  }, [wheel?.spin_at, wheel?.status])
+  }, [wheel?.spin_at, wheel?.status, wheel?.id, triggerAutoSpin])
 
   // Realtime: participants
   useEffect(() => {
@@ -246,14 +273,25 @@ export default function PublicWheelPage() {
     } else {
       addMySpot(wheel.id, name.trim())
       setName('')
+      setJustJoined(true)
+      setTimeout(() => setJustJoined(false), 3000)
     }
     setJoining(false)
+  }
+
+  const handleShareLink = () => {
+    navigator.clipboard.writeText(window.location.href)
+    setCopiedLink(true)
+    setTimeout(() => setCopiedLink(false), 2000)
   }
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--gradient-hero)' }}>
-        <div className="text-white/50">Loading...</div>
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-white/20 border-t-orange-500 rounded-full animate-spin" />
+          <div className="text-white/40 text-sm">Loading wheel...</div>
+        </div>
       </div>
     )
   }
@@ -261,7 +299,17 @@ export default function PublicWheelPage() {
   if (!wheel) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--gradient-hero)' }}>
-        <div className="text-white/50">Wheel not found</div>
+        <div className="text-center">
+          <div className="text-4xl mb-4 opacity-50">?</div>
+          <div className="text-white/50 mb-4">Wheel not found</div>
+          <button
+            onClick={() => router.push('/')}
+            className="px-6 py-2 rounded-full text-sm font-medium text-white transition-all hover:scale-[1.02] cursor-pointer"
+            style={{ background: 'var(--gradient-cta)' }}
+          >
+            Create Your Own
+          </button>
+        </div>
       </div>
     )
   }
@@ -270,12 +318,24 @@ export default function PublicWheelPage() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--gradient-hero)' }}>
-      {/* Header */}
-      <header className="text-center py-4 border-b border-white/[0.06]">
-        <h1 className="text-xl font-bold" style={{ fontFamily: 'var(--font-display)' }}>
+      {/* Header with CTA logo */}
+      <header className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
+        <button
+          onClick={() => router.push('/')}
+          className="text-xl font-bold transition-opacity hover:opacity-80 cursor-pointer"
+          style={{ fontFamily: 'var(--font-display)' }}
+          title="Create your own wheel!"
+        >
           <span className="text-white">wins</span>
           <span style={{ color: 'var(--color-orange)' }}>.im</span>
-        </h1>
+        </button>
+        <button
+          onClick={() => router.push('/')}
+          className="px-4 py-1.5 rounded-full text-xs font-semibold text-white transition-all hover:scale-[1.02] cursor-pointer"
+          style={{ background: 'var(--gradient-cta)' }}
+        >
+          Create Your Own
+        </button>
       </header>
 
       <main className="max-w-2xl mx-auto px-6 py-8">
@@ -285,7 +345,10 @@ export default function PublicWheelPage() {
             {wheel.title}
           </h2>
           {wheel.prize_description && (
-            <p className="text-white/50">Prize: {wheel.prize_description}</p>
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/5 border border-white/[0.06]">
+              <span className="text-sm text-white/50">Prize:</span>
+              <span className="text-sm font-medium text-white/80">{wheel.prize_description}</span>
+            </div>
           )}
         </div>
 
@@ -296,17 +359,33 @@ export default function PublicWheelPage() {
             size={Math.min(400, typeof window !== 'undefined' ? window.innerWidth - 48 : 400)}
             rotation={rotation}
             spinning={spinning}
+            theme={wheel.theme}
           />
         </div>
 
         {/* Join form (if open) */}
         {wheel.status === 'open' && (
           <div className="mb-8">
+            {justJoined && (
+              <div className="text-center mb-4 animate-fade-in">
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-green-500/10 border border-green-500/20">
+                  <svg className="w-4 h-4 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="text-sm text-green-400 font-medium">You&apos;re in! Good luck!</span>
+                </div>
+              </div>
+            )}
             {hasReachedLimit ? (
               <div className="text-center">
-                <p className="text-white/40 text-sm">
-                  You&apos;ve used all {wheel.max_slots_per_user} of your {wheel.max_slots_per_user === 1 ? 'spot' : 'spots'}
-                </p>
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/[0.06]">
+                  <svg className="w-4 h-4 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                  <p className="text-white/40 text-sm">
+                    You&apos;ve used all {wheel.max_slots_per_user} of your {wheel.max_slots_per_user === 1 ? 'spot' : 'spots'}
+                  </p>
+                </div>
               </div>
             ) : (
               <>
@@ -353,43 +432,81 @@ export default function PublicWheelPage() {
 
         {wheel.status === 'closed' && (
           <div className="text-center py-4">
-            <p className="text-white/50">This wheel is closed</p>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/[0.06]">
+              <div className="w-2 h-2 rounded-full bg-white/30" />
+              <p className="text-white/50 text-sm">This wheel is closed</p>
+            </div>
           </div>
         )}
 
         {/* Participants */}
         <div className="mt-6">
-          <h3 className="text-sm text-white/40 mb-3 text-center">
-            Participants ({participants.length})
-          </h3>
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <h3 className="text-sm text-white/40">
+              Participants
+            </h3>
+            <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-white/5 border border-white/[0.06] text-white/50">
+              {participants.length}
+            </span>
+            {wheel.max_participants && (
+              <span className="text-xs text-white/20">/ {wheel.max_participants}</span>
+            )}
+          </div>
           <div className="flex flex-wrap justify-center gap-2">
-            {participants.map((p) => (
+            {participants.map((p, i) => (
               <span
                 key={p.id}
-                className="px-3 py-1 rounded-full text-sm bg-white/5 text-white/60 border border-white/[0.06]"
+                className="px-3 py-1 rounded-full text-sm bg-white/5 text-white/60 border border-white/[0.06] transition-all"
+                style={{
+                  animationDelay: `${i * 50}ms`,
+                }}
               >
                 {p.display_name}
               </span>
             ))}
           </div>
           {participants.length === 0 && (
-            <p className="text-center text-white/30 text-sm">No participants yet</p>
+            <p className="text-center text-white/30 text-sm">No participants yet &mdash; be the first!</p>
           )}
         </div>
+
+        {/* Share link button */}
+        {wheel.status === 'open' && participants.length > 0 && (
+          <div className="text-center mt-6">
+            <button
+              onClick={handleShareLink}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs text-white/40 bg-white/5 hover:bg-white/10 border border-white/[0.06] transition-colors cursor-pointer"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+              </svg>
+              {copiedLink ? 'Link copied!' : 'Share this wheel'}
+            </button>
+          </div>
+        )}
 
         {/* Scheduled spin countdown */}
         {wheel.spin_at && wheel.status === 'open' && countdown && (
           <div className="text-center mt-6 p-4 rounded-xl border border-white/[0.06]" style={{ background: 'var(--gradient-card)' }}>
             <p className="text-xs text-white/40 mb-1">Spin scheduled in</p>
-            <p className="text-2xl font-bold" style={{ fontFamily: 'var(--font-display)', color: 'var(--color-orange)' }}>
+            <p className="text-2xl font-bold tabular-nums" style={{ fontFamily: 'var(--font-display)', color: 'var(--color-orange)' }}>
               {countdown}
             </p>
+            <div className="mt-2 w-full bg-white/5 rounded-full h-1 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-1000"
+                style={{
+                  background: 'var(--gradient-cta)',
+                  width: wheel.spin_at ? `${Math.max(2, 100 - ((new Date(wheel.spin_at).getTime() - Date.now()) / (new Date(wheel.spin_at).getTime() - new Date(wheel.created_at).getTime())) * 100)}%` : '0%',
+                }}
+              />
+            </div>
           </div>
         )}
 
         {/* Persistent winner display (always visible when completed) */}
         {wheel.status === 'completed' && wheel.winner_name && !spinning && (
-          <div className="text-center mt-6 p-6 rounded-xl border border-orange-500/20" style={{ background: 'var(--gradient-card)', boxShadow: 'var(--shadow-glow-orange)' }}>
+          <div className="text-center mt-6 p-6 rounded-xl border border-orange-500/20 animate-fade-in" style={{ background: 'var(--gradient-card)', boxShadow: 'var(--shadow-glow-orange)' }}>
             <p className="text-xs text-white/40 mb-1 uppercase tracking-widest">Winner</p>
             <p className="text-3xl font-bold" style={{ fontFamily: 'var(--font-display)', color: 'var(--color-orange)' }}>
               {wheel.winner_name}
@@ -403,10 +520,23 @@ export default function PublicWheelPage() {
         {/* Waiting message */}
         {wheel.status === 'open' && participants.length > 0 && !countdown && (
           <div className="text-center mt-8">
-            <p className="text-white/30 text-sm">Waiting for host to spin...</p>
+            <div className="inline-flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <p className="text-white/30 text-sm">Live &mdash; waiting for host to spin...</p>
+            </div>
           </div>
         )}
       </main>
+
+      {/* Footer CTA */}
+      <footer className="text-center py-6 border-t border-white/[0.06]">
+        <button
+          onClick={() => router.push('/')}
+          className="text-white/30 text-sm hover:text-white/50 transition-colors cursor-pointer"
+        >
+          Create your own wheel at <span style={{ color: 'var(--color-orange)' }}>wins.im</span>
+        </button>
+      </footer>
 
       {/* Winner overlay */}
       {showWinner && (
